@@ -1,4 +1,6 @@
 use super::super::BoxFuture;
+#[cfg(target_arch = "wasm32")]
+use super::SharedExec;
 use super::{grpc_timeout::GrpcTimeout, reconnect::Reconnect, AddOrigin, UserAgent};
 use crate::{body::BoxBody, transport::Endpoint};
 use http::Uri;
@@ -34,24 +36,34 @@ impl Connection {
         C::Future: Unpin + Send,
         C::Response: AsyncRead + AsyncWrite + HyperConnection + Unpin + Send + 'static,
     {
-        let mut settings = Builder::new()
+        let mut settings = Builder::new();
+        settings
             .http2_initial_stream_window_size(endpoint.init_stream_window_size)
             .http2_initial_connection_window_size(endpoint.init_connection_window_size)
-            .http2_only(true)
-            .http2_keep_alive_interval(endpoint.http2_keep_alive_interval)
-            .executor(endpoint.executor.clone())
-            .clone();
-
-        if let Some(val) = endpoint.http2_keep_alive_timeout {
-            settings.http2_keep_alive_timeout(val);
-        }
-
-        if let Some(val) = endpoint.http2_keep_alive_while_idle {
-            settings.http2_keep_alive_while_idle(val);
-        }
+            .http2_only(true);
 
         if let Some(val) = endpoint.http2_adaptive_window {
             settings.http2_adaptive_window(val);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            settings
+                .executor(SharedExec::tokio())
+                // reset streams require `Instant::now` which is not available on wasm
+                .http2_max_concurrent_reset_streams(0);
+        }
+
+        #[cfg(feature = "transport")]
+        {
+            settings.http2_keep_alive_interval(endpoint.http2_keep_alive_interval);
+            if let Some(val) = endpoint.http2_keep_alive_timeout {
+                settings.http2_keep_alive_timeout(val);
+            }
+
+            if let Some(val) = endpoint.http2_keep_alive_while_idle {
+                settings.http2_keep_alive_while_idle(val);
+            }
         }
 
         let stack = ServiceBuilder::new()
@@ -86,6 +98,7 @@ impl Connection {
         Self::new(connector, endpoint, false).ready_oneshot().await
     }
 
+    #[cfg(feature = "transport")]
     pub(crate) fn lazy<C>(connector: C, endpoint: Endpoint) -> Self
     where
         C: Service<Uri> + Send + 'static,

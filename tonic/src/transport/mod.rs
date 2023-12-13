@@ -87,6 +87,7 @@
 //! [rustls]: https://docs.rs/rustls/0.16.0/rustls/
 
 pub mod channel;
+#[cfg(feature = "transport")]
 pub mod server;
 
 mod error;
@@ -98,6 +99,7 @@ mod tls;
 #[cfg_attr(docsrs, doc(cfg(feature = "channel")))]
 pub use self::channel::{Channel, Endpoint};
 pub use self::error::Error;
+#[cfg(feature = "transport")]
 #[doc(inline)]
 pub use self::server::{NamedService, Server};
 #[doc(inline)]

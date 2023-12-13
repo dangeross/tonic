@@ -9,7 +9,7 @@ pub use endpoint::Endpoint;
 #[cfg(feature = "tls")]
 pub use tls::ClientTlsConfig;
 
-use super::service::{Connection, DynamicServiceStream, SharedExec};
+use super::service::{Connection, SharedExec};
 use crate::body::BoxBody;
 use crate::transport::Executor;
 use bytes::Bytes;
@@ -21,19 +21,20 @@ use hyper::client::connect::Connection as HyperConnection;
 use std::{
     fmt,
     future::Future,
-    hash::Hash,
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    sync::mpsc::{channel, Sender},
-};
+use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(feature = "transport")]
+use tokio::sync::mpsc::{channel, Sender};
 
-use tower::balance::p2c::Balance;
+#[cfg(feature = "transport")]
+use tower::{
+    balance::p2c::Balance,
+    discover::{Change, Discover},
+};
 use tower::{
     buffer::{self, Buffer},
-    discover::{Change, Discover},
     util::{BoxService, Either},
     Service,
 };
@@ -109,6 +110,7 @@ impl Channel {
     ///
     /// This creates a [`Channel`] that will load balance across all the
     /// provided endpoints.
+    #[cfg(feature = "transport")]
     pub fn balance_list(list: impl Iterator<Item = Endpoint>) -> Self {
         let (channel, tx) = Self::balance_channel(DEFAULT_BUFFER_SIZE);
         list.for_each(|endpoint| {
@@ -122,9 +124,10 @@ impl Channel {
     /// Balance a list of [`Endpoint`]'s.
     ///
     /// This creates a [`Channel`] that will listen to a stream of change events and will add or remove provided endpoints.
+    #[cfg(feature = "transport")]
     pub fn balance_channel<K>(capacity: usize) -> (Self, Sender<Change<K, Endpoint>>)
     where
-        K: Hash + Eq + Send + Clone + 'static,
+        K: std::hash::Hash + Eq + Send + Clone + 'static,
     {
         Self::balance_channel_with_executor(capacity, SharedExec::tokio())
     }
@@ -134,19 +137,21 @@ impl Channel {
     /// This creates a [`Channel`] that will listen to a stream of change events and will add or remove provided endpoints.
     ///
     /// The [`Channel`] will use the given executor to spawn async tasks.
+    #[cfg(feature = "transport")]
     pub fn balance_channel_with_executor<K, E>(
         capacity: usize,
         executor: E,
     ) -> (Self, Sender<Change<K, Endpoint>>)
     where
-        K: Hash + Eq + Send + Clone + 'static,
+        K: std::hash::Hash + Eq + Send + Clone + 'static,
         E: Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + 'static,
     {
         let (tx, rx) = channel(capacity);
-        let list = DynamicServiceStream::new(rx);
+        let list = super::service::DynamicServiceStream::new(rx);
         (Self::balance(list, DEFAULT_BUFFER_SIZE, executor), tx)
     }
 
+    #[cfg(feature = "transport")]
     pub(crate) fn new<C>(connector: C, endpoint: Endpoint) -> Self
     where
         C: Service<Uri> + Send + 'static,
@@ -187,7 +192,7 @@ impl Channel {
     where
         D: Discover<Service = Connection> + Unpin + Send + 'static,
         D::Error: Into<crate::Error>,
-        D::Key: Hash + Send + Clone,
+        D::Key: std::hash::Hash + Send + Clone,
         E: Executor<futures_core::future::BoxFuture<'static, ()>> + Send + Sync + 'static,
     {
         let svc = Balance::new(discover);
