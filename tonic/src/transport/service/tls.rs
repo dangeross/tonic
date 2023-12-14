@@ -76,7 +76,7 @@ impl TlsConnector {
         let mut config = match identity {
             Some(identity) => {
                 let (client_cert, client_key) = rustls_keys::load_identity(identity)?;
-                builder.with_single_cert(client_cert, client_key)?
+                builder.with_client_auth_cert(client_cert, client_key)?
             }
             None => builder.with_no_client_auth(),
         };
@@ -136,7 +136,7 @@ impl TlsAcceptor {
                 use tokio_rustls::rustls::server::AllowAnyAuthenticatedClient;
                 let mut roots = RootCertStore::empty();
                 rustls_keys::add_certs_from_pem(std::io::Cursor::new(&cert.pem[..]), &mut roots)?;
-                builder.with_client_cert_verifier(AllowAnyAuthenticatedClient::new(roots))
+                builder.with_client_cert_verifier(AllowAnyAuthenticatedClient::new(roots).boxed())
             }
         };
 
