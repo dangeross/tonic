@@ -6,21 +6,26 @@ pub(crate) use hyper::rt::Executor;
 #[derive(Copy, Clone)]
 struct TokioExec;
 
+#[cfg(all(
+    any(feature = "transport", feature = "client"),
+    not(target_arch = "wasm32")
+))]
 impl<F> Executor<F> for TokioExec
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    #[cfg(all(
-        any(feature = "transport", feature = "client"),
-        not(target_arch = "wasm32")
-    ))]
     fn execute(&self, fut: F) {
         tokio::spawn(fut);
     }
+}
 
-    #[cfg(all(any(feature = "transport", feature = "client"), target_arch = "wasm32"))]
-    #[cfg(target_arch = "wasm32")]
+#[cfg(all(any(feature = "transport", feature = "client"), target_arch = "wasm32"))]
+#[cfg(target_arch = "wasm32")]
+impl<F> Executor<F> for TokioExec
+where
+    F: Future<Output = ()> + 'static,
+{
     fn execute(&self, fut: F) {
         wasm_bindgen_futures::spawn_local(fut);
     }
